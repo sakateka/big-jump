@@ -29,8 +29,11 @@ class Man:
         self.in_jump = False
         self.step = True
 
-    def head_pos(self) -> int:
+    def head_y(self) -> int:
         return self.y
+
+    def head_x(self) -> int:
+        return self.x
 
     def respawn(self):
         self.health = 5
@@ -38,6 +41,12 @@ class Man:
 
     def dead(self) -> bool:
         return self.health <= 0
+
+    def right(self):
+        self.x += 1
+
+    def left(self):
+        self.x -= 1
 
     def jump(self):
         if not self.in_jump:
@@ -65,7 +74,7 @@ class Man:
         self.in_jump = False
 
     def check_oxygen(self, screen):
-        if self.head_pos() > len(screen):
+        if self.head_y() > len(screen):
             if self.under >= 30:
                 self.under = 0;
                 self.oxygen -= 1
@@ -76,25 +85,26 @@ class Man:
         else:
             self.oxygen = self.oxygen_init
 
-    def draw(self, screen): 
+    def draw(self, screen):
         self.do_jump()
         self.check_oxygen(screen)
         y = self.y
         if self.dead():
             y = len(screen) - 3
-        draw_dot(screen, x=self.x, y=y+1,    brush='👺') 
-        draw_dot(screen, x=self.x, y=y+2,    brush='|') 
-        draw_dot(screen, x=self.x+1, y=y+2,  brush='^') 
-        draw_dot(screen, x=self.x-1, y=y+2,  brush='^') 
+        #draw_dot(screen, x=self.x, y=y+1,    brush='👺')
+        draw_dot(screen, x=self.x, y=y+1,    brush='ج')
+        draw_dot(screen, x=self.x, y=y+2,    brush='|')
+        draw_dot(screen, x=self.x+1, y=y+2,  brush='^')
+        draw_dot(screen, x=self.x-1, y=y+2,  brush='^')
         if self.in_jump:
-            draw_dot(screen, x=self.x+1, y=y+2,  brush='/') 
-            draw_dot(screen, x=self.x-1, y=y+2,  brush='\\') 
-        else:                                   
-            draw_dot(screen, x=self.x+2, y=y+2,  brush='\\') 
-            draw_dot(screen, x=self.x-2, y=y+2,  brush='/') 
+            draw_dot(screen, x=self.x+1, y=y+2,  brush='/')
+            draw_dot(screen, x=self.x-1, y=y+2,  brush='\\')
+        else:
+            draw_dot(screen, x=self.x+2, y=y+2,  brush='\\')
+            draw_dot(screen, x=self.x-2, y=y+2,  brush='/')
         if self.dead():
             return
-        draw_dot(screen,     x=self.x, y=y+3,    brush='@') 
+        draw_dot(screen,     x=self.x, y=y+3,    brush='❂')
         if self.in_jump:
             draw_dot(screen, x=self.x, y=y+4,  brush='|')
             draw_dot(screen, x=self.x+1, y=y+4,  brush='\\')
@@ -103,10 +113,10 @@ class Man:
             draw_dot(screen, x=self.x+1, y=y+5,  brush='/')
         else:
             if self.step == 0:
-                draw_dot(screen, x=self.x-1, y=y+4,  brush='/') 
+                draw_dot(screen, x=self.x-1, y=y+4,  brush='/')
                 draw_dot(screen, x=self.x-2, y=y+5,  brush='/')
 
-                draw_dot(screen,     x=self.x+1, y=y+4,  brush='\\') 
+                draw_dot(screen,     x=self.x+1, y=y+4,  brush='\\')
                 draw_dot(screen, x=self.x+2, y=y+5,  brush='/')
                 self.step = 1
             elif self.step == 1:
@@ -208,6 +218,12 @@ def get_pressed_key(moment=0.1):
                     return "right"
                 elif ch == '[D':  # ]
                     return "left"
+                elif ch == '[5':  # ]
+                    ch = sys.stdin.read(1)
+                    return "page-up"
+                elif ch == '[6':  # ]
+                    ch = sys.stdin.read(1)
+                    return "page-down"
             elif ch == '\r' or ch == '\n':  # Enter key
                 return "enter"
             elif ch == 'e':
@@ -225,7 +241,6 @@ if __name__ == '__main__':
     rock_position = 80
 
     rock_hit = False
-    man_position=18
     chr = None
 
     jump_duration = 10
@@ -242,12 +257,16 @@ if __name__ == '__main__':
         man.draw(screen)
         draw_rock(screen, x=rock_position)
         drow_vertical_line(screen, x=2, y=1, lenght=man.health, brush='❤️', color=31)
-        
-        drow_vertical_line(screen, x=4, y=1, lenght=man.oxygen, brush='🫧', color=31)
+
+        drow_vertical_line(screen, x=4, y=1, lenght=man.oxygen, brush='🗭', color=34)
         print_screen(screen)
 
-        if chr == 'space':
+        if chr in ['space', 'up', 'page-up']:
             man.jump()
+        elif chr == 'right':
+            man.right()
+        elif chr == 'left':
+            man.left()
         elif chr == 'exit':
             # print("Игра завершена")
             #sys.exit(0)
@@ -263,11 +282,11 @@ if __name__ == '__main__':
             moment = max(moment - 0.02, 0.05)
 
 
-        if rock_position == man_position + 10:
+        if rock_position == man.head_x() + 10:
             rock_hit = True
 
-        rock_distance = rock_position - man_position
-        if (-2 < rock_distance < 2) and len(screen) > man.head_pos() > 22:
+        rock_distance = rock_position - man.head_x()
+        if (-2 < rock_distance < 2) and len(screen) > man.head_y() > 22:
             # print("rock_hit")
             if rock_hit:
                 man.health -= 1
