@@ -465,16 +465,6 @@ def get_pressed_key(moment=0.1):
     return None
 
 if __name__ == '__main__':
-    rock_position = 80
-
-    chr = None
-
-    jump_duration = 10
-    head_init = 24
-    head=head_init
-    jump=0
-
-
     width=80
     height=30
     screen = Screen(width=width, height=height, moment=0.1)
@@ -482,6 +472,7 @@ if __name__ == '__main__':
     cloud = Cloud(y=1, x=73, screen=screen)
     rocks = [Rock(y=28, x=79, screen=screen), Rock(y=28, x=89, screen=screen)]
 
+    chr = None
     while True:
         screen.clean()
         man.draw()
@@ -503,8 +494,8 @@ if __name__ == '__main__':
         elif chr == 'left':
             man.left()
         elif chr == 'exit':
-            # print("Игра завершена")
-            #sys.exit(0)
+            print("Game over")
+            sys.exit(0)
             pass
         elif chr == 'r':
             man.up()
