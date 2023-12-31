@@ -130,6 +130,37 @@ class Lightning(Object):
         super().draw()
         self.redraw = False
 
+    def hit(self, other, draw=False):
+        if not self.light:
+            return False
+
+        bottom = self.y + self.height
+        if other.y > bottom:
+            return False
+
+        depth = bottom - other.y
+        if draw:
+            self.screen.draw_dot(x=self.x-6, y=bottom-1, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-5, y=bottom-1, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-7, y=bottom-2, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-6, y=bottom-2, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-5, y=bottom-2, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-4, y=bottom-2, brush='#', color=31)
+
+            self.screen.draw_dot(x=self.x-8, y=bottom-3, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-7, y=bottom-3, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-6, y=bottom-3, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-5, y=bottom-3, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-4, y=bottom-3, brush='#', color=31)
+            self.screen.draw_dot(x=self.x-3, y=bottom-3, brush='#', color=31)
+        if depth == 1 and 5 <= self.x - other.x <= 6:
+            return True
+        if depth == 2 and 4 <= self.x - other.x <= 7:
+            return True
+        if depth >= 3 and 3 <= self.x - other.x <= 8:
+            return True
+        return False
+
 
 class Cloud(Object):
     def __init__(self, screen, x, y):
@@ -160,6 +191,11 @@ class Cloud(Object):
         self.lightning.draw()
         pass
 
+    def hit(self, other, draw=False):
+        if self.lightning.hit(other, draw):
+            if not draw:
+                other.health -= 1
+
 class Rock(Object):
     def __init__(self, screen, x, y):
         pattern = dedent("""
@@ -176,7 +212,7 @@ class Rock(Object):
             self.rock_hit = True
 
         rock_distance = self.x - other.x
-        if (-1 < rock_distance < 1) and self.screen.height > other.y > 22:
+        if (-1 < rock_distance < 1) and self.screen.height > other.y > 23:
             if self.rock_hit:
                 other.health -= 1
                 self.rock_hit = False
@@ -253,6 +289,8 @@ class Man(Object):
     def jump(self):
         if not self.in_jump:
             self.in_jump = True
+            if self.in_sit_down:
+                self.y -= 1
             self.in_sit_down = False
 
     def sit_down(self):
@@ -389,49 +427,46 @@ class Screen():
         for idx, chr in enumerate(text):
             self.draw_dot(x=x + idx, y=y, brush=chr)
 
+get_pressed_key_init = False
 def get_pressed_key(moment=0.1):
     """
     Detects which arrow key is pressed on the keyboard and returns the corresponding direction.
     """
     fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
+    if not get_pressed_key_init:
         tty.setcbreak(sys.stdin.fileno())  # Set the terminal to cbreak mode
-        ch = None
-        if sys.stdin in select.select([sys.stdin], [], [], moment)[0]:  # Adjust delay value here
-            ch = sys.stdin.read(1)
-            if ch == '\x1b':  # Escape key
-                ch = sys.stdin.read(2)
-                if ch == '[A':  # ]
-                    return "up"
-                elif ch == '[B':  # ]
-                    return "down"
-                elif ch == '[C':  # ]
-                    return "right"
-                elif ch == '[D':  # ]
-                    return "left"
-                elif ch == '[5':  # ]
-                    ch = sys.stdin.read(1)
-                    return "page-up"
-                elif ch == '[6':  # ]
-                    ch = sys.stdin.read(1)
-                    return "page-down"
-            elif ch == '\r' or ch == '\n':  # Enter key
-                return "enter"
-            elif ch == 'e':
-                return "exit"
-            elif ch == ' ':  # Space key
-                return "space"
-            else:
-                return ch
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    ch = None
+    if sys.stdin in select.select([sys.stdin], [], [], moment)[0]:  # Adjust delay value here
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':  # Escape key
+            ch = sys.stdin.read(2)
+            if ch == '[A':  # ]
+                return "up"
+            elif ch == '[B':  # ]
+                return "down"
+            elif ch == '[C':  # ]
+                return "right"
+            elif ch == '[D':  # ]
+                return "left"
+            elif ch == '[5':  # ]
+                ch = sys.stdin.read(1)
+                return "page-up"
+            elif ch == '[6':  # ]
+                ch = sys.stdin.read(1)
+                return "page-down"
+        elif ch == '\r' or ch == '\n':  # Enter key
+            return "enter"
+        elif ch == 'e':
+            return "exit"
+        elif ch == ' ':  # Space key
+            return "space"
+        else:
+            return ch
     return None
 
 if __name__ == '__main__':
     rock_position = 80
 
-    rock_hit = False
     chr = None
 
     jump_duration = 10
@@ -457,6 +492,7 @@ if __name__ == '__main__':
 
         screen.vertical_line(x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
         screen.vertical_line(x=6, y=1, lenght=man.water, brush='🌢', color=34)
+        # cloud.hit(man, draw=True)
         screen.string(f"ɱ : {screen.moment:.2f}", y=0, x=0)
         screen.print()
 
