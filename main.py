@@ -1,6 +1,7 @@
 import tty
 import termios
 import select
+from textwrap import dedent
 
 import math
 import time
@@ -11,9 +12,83 @@ escape = "\x1b"
 unset = escape + "[0m" # ]
 cs = "[1;" # ]
 
+class Object:
+    def __init__(self, x, y, frames):
+        self.frames = frames
+        self.x_init = x
+        self.x = x
+        self.y = y
+        self.current_frame = 0
+
+    @staticmethod
+    def split_pattern(pattern, sep):
+        frames = []
+        for line in pattern.splitlines():
+            if not line:
+                continue
+            frames_line = [l for l in line.split(sep) if l]
+            if not frames:
+                frames = [[line] for line in frames_line]
+            else:
+                for (idx, frame_line) in enumerate(frames_line):
+                    frames[idx].append(frame_line)
+        return frames
+
+    def draw(self, screen):
+        self.current_frame = (self.current_frame + 1) % len(self.frames)
+        self.x -= 1
+        frame_width = len(self.frames[0])
+        if self.x < -frame_width:
+            self.x = self.x_init + frame_width
+
+        for (y, line) in enumerate(screen):
+            for x in range(len(line)):
+                dot, color = self.dot(x=x, y=y)
+                if not dot or dot == ' ':
+                    continue
+                draw_dot(screen, x=x, y=y, brush=dot, color=color)
+
+    def dot(self, x, y):
+        frame_width = len(self.frames[0])
+        if self.y > y > self.y + frame_width:
+            return (None, None)
+
+        half_of_frame = frame_width//2;
+        if -half_of_frame > x - self.x > half_of_frame:
+            return (None, None)
+
+        frame = self.frames[self.current_frame]
+        fy = y - self.y
+        fx = x - (self.x - half_of_frame)
+        if 0 > fy or fy >= len(frame) or 0 > fx or fx >= len(frame[0]):
+            return (None, None)
+
+        color = self.color(x=fx, y=fy)
+        return frame[fy][fx], color
+    
+    def color(self, x, y):
+        if y >= 4:
+            return 34
+        return 0
+
+
+class Cloud(Object):
+    def __init__(self, x, y):
+        pattern = dedent("""
+         |   ###   |   ###   |
+         | ####### | ####### |
+         |#########|#########|
+         | ####### | ####### |
+         |  🌢🌢🌢🌢🌢  | 🌢 🌢 🌢 🌢 |
+         | 🌢 🌢 🌢 🌢 |  🌢🌢🌢🌢🌢  |
+         |  🌢🌢🌢🌢🌢  | 🌢 🌢 🌢 🌢 |
+        """)
+
+        frames = Object.split_pattern(pattern, '|')
+        super().__init__(x=x, y=y, frames=frames)
 
 class Man:
-    def __init__(self, health=5, oxygen=5, x=18, y=24):
+    def __init__(self, health=5, oxygen=5, water=10, x=18, y=24):
         self.head_init = y
         self.x = x
         self.y = y
@@ -29,6 +104,9 @@ class Man:
         self.in_jump = False
         self.step = True
 
+        self.water = water
+        self.water_counter = 0
+
     def head_y(self) -> int:
         return self.y
 
@@ -38,6 +116,7 @@ class Man:
     def respawn(self):
         self.health = 5
         self.oxygen = 7
+        self.water = 10
 
     def dead(self) -> bool:
         return self.health <= 0
@@ -85,9 +164,16 @@ class Man:
         else:
             self.oxygen = self.oxygen_init
 
+    def check_water(self, screen):
+        if self.water_counter == 20:
+            self.water -= 1
+            self.water_counter = 0
+        self.water_counter += 1
+
     def draw(self, screen):
         self.do_jump()
         self.check_oxygen(screen)
+        self.check_water(screen)
         y = self.y
         if self.dead():
             y = len(screen) - 3
@@ -178,9 +264,9 @@ def draw_rock(screen, x=57, y=28, brush='#'):
     draw_dot(screen, x,   y,   brush)
     draw_dot(screen, x+1, y,   brush)
     draw_dot(screen, x,   y+1, brush)
-    draw_dot(screen, x,   y-1, brush)
     draw_dot(screen, x+1, y+1, brush)
-    draw_dot(screen, x+1, y-1, brush)
+    draw_dot(screen, x-1, y+1, brush)
+    draw_dot(screen, x+2, y+1, brush)
 
 def draw_dot(screen, x, y, brush, color=0):
     if y < 0 or y >= len(screen):
@@ -251,14 +337,17 @@ if __name__ == '__main__':
     moment = 0.1
 
     man = Man(health=5, oxygen=7, x=18, y=24)
+    cloud = Cloud(y=1, x=73)
 
     while True:
         screen = make_screen()
         man.draw(screen)
+        cloud.draw(screen)
         draw_rock(screen, x=rock_position)
         drow_vertical_line(screen, x=2, y=1, lenght=man.health, brush='❤️', color=31)
 
-        drow_vertical_line(screen, x=4, y=1, lenght=man.oxygen, brush='🗭', color=34)
+        drow_vertical_line(screen, x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
+        drow_vertical_line(screen, x=6, y=1, lenght=man.water, brush='🌢', color=34)
         print_screen(screen)
 
         if chr in ['space', 'up', 'page-up']:
