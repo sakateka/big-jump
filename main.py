@@ -2,6 +2,7 @@ import tty
 import termios
 import select
 from textwrap import dedent
+from random import random
 
 import math
 import time
@@ -13,9 +14,18 @@ unset = escape + "[0m" # ]
 cs = "[1;" # ]
 
 class Object:
-    def __init__(self, x, y, frames):
+    def __init__(self, screen, x, y, frames, moving=True):
+        if not screen:
+            raise Exception("screen is required")
+        self.screen = screen
+
+        self.height = len(frames[0])
+        self.width = len(frames[0][0])
+        
+        self.moving = moving
         self.frames = frames
         self.x_init = x
+        self.y_init = y
         self.x = x
         self.y = y
         self.current_frame = 0
@@ -34,19 +44,21 @@ class Object:
                     frames[idx].append(frame_line)
         return frames
 
-    def draw(self, screen):
+    def draw(self):
         self.current_frame = (self.current_frame + 1) % len(self.frames)
-        self.x -= 1
+        if self.moving:
+            self.x -= 1
+
         frame_width = len(self.frames[0])
         if self.x < -frame_width:
             self.x = self.x_init + frame_width
 
-        for (y, line) in enumerate(screen):
-            for x in range(len(line)):
+        for y in range(self.screen.height):
+            for x in range(self.screen.width):
                 dot, color = self.dot(x=x, y=y)
                 if not dot or dot == ' ':
                     continue
-                draw_dot(screen, x=x, y=y, brush=dot, color=color)
+                self.screen.draw_dot(x=x, y=y, brush=dot, color=color)
 
     def dot(self, x, y):
         frame_width = len(self.frames[0])
@@ -66,14 +78,61 @@ class Object:
         color = self.color(x=fx, y=fy)
         return frame[fy][fx], color
     
-    def color(self, x, y):
-        if y >= 4:
-            return 34
+    def hit(self, _):
+        pass
+
+    def color(self, x, y) -> int:
         return 0
 
 
+class Lightning(Object):
+    def __init__(self, screen, x, y):
+        pattern = dedent(f"""
+            :           /#/:
+            :          /#/ :
+            :         /#/  :
+            :        /#/__ :
+            :       /####/ :
+            :         /#/  :
+            :        /#/   :
+            :        /#/   :
+            :       /#/    :
+            :      /#/__   :
+            :     /####/   :
+            :       /#/    :
+            :      /#/     :
+            :     /#/      :
+            :    /#/       :
+            :   /#/        :
+            :🭦 🮆 🮆 🭛       :
+            : 🭦 🮆 🭛        :
+            :  🭦 🭛         :
+        """) 
+
+        frames = Object.split_pattern(pattern, ':')
+        super().__init__(screen=screen, x=x, y=y, frames=frames)
+        self.redraw = False
+        self.light = False
+
+    def color(self, x, y) -> int:
+        return 33
+
+    def draw(self):
+        r = round(random(), 3)
+        if not (0.7 >= r >= 0.6):
+            if not self.redraw:
+                self.light = False
+                return
+        else:
+            self.redraw = True
+
+        self.light = True
+        super().draw()
+        self.redraw = False
+
+
 class Cloud(Object):
-    def __init__(self, x, y):
+    def __init__(self, screen, x, y):
         pattern = dedent("""
          |   ###   |   ###   |
          | ####### | ####### |
@@ -85,13 +144,81 @@ class Cloud(Object):
         """)
 
         frames = Object.split_pattern(pattern, '|')
-        super().__init__(x=x, y=y, frames=frames)
+        super().__init__(screen=screen, x=x, y=y, frames=frames)
 
-class Man:
-    def __init__(self, health=5, oxygen=5, water=10, x=18, y=24):
-        self.head_init = y
-        self.x = x
-        self.y = y
+        self.lightning = Lightning(screen=screen, x=x, y=y+self.height)
+
+    def color(self, x, y) -> int:
+        if y >= 4:
+            return 34
+        return 0
+
+    def draw(self):
+        
+        super().draw()
+        self.lightning.x = self.x - 1
+        self.lightning.draw()
+        pass
+
+class Rock(Object):
+    def __init__(self, screen, x, y):
+        pattern = dedent("""
+         | ## |
+         |####|
+        """)
+
+        frames = Object.split_pattern(pattern, '|')
+        super().__init__(screen=screen, x=x, y=y, frames=frames)
+        self.rock_hit = True
+
+    def hit(self, other):
+        if self.x == other.x + 10:
+            self.rock_hit = True
+
+        rock_distance = self.x - other.x
+        if (-1 < rock_distance < 1) and self.screen.height > other.y > 22:
+            if self.rock_hit:
+                other.health -= 1
+                self.rock_hit = False
+
+class Man(Object):
+    def __init__(self, screen, health=5, oxygen=5, water=10, x=18, y=24):
+        pattern = dedent(r"""
+            :  ج  :  ج  :  ج  :
+            :/^|^\:/^|^\:/^|^\:
+            :  ❂  :  ❂  :  ❂  :
+            : / \ :  |  :  |  :
+            :/   /: / / :  /  :
+        """)
+
+        jump_pattern = dedent(r"""
+            :  ج  :
+            : \|/ :
+            :  ❂  :
+            : _|\ :
+            :   ` :
+        """)
+
+        sit_pattern = dedent(r"""
+            :  ج  :
+            : \|/ :
+            :  ❂/|:
+        """)
+
+        self.run_frames = Object.split_pattern(pattern, ':')
+        super().__init__(
+            screen=screen,
+            x=x,
+            y=y,
+            frames=self.run_frames,
+            moving=False
+        )
+
+        self.jump_frames = Object.split_pattern(jump_pattern, ':')
+        self.sit_frames = Object.split_pattern(sit_pattern, ':')
+
+        self.screen = screen
+
         self.health = health
         self.oxygen_init = oxygen
         self.oxygen = oxygen
@@ -104,14 +231,10 @@ class Man:
         self.in_jump = False
         self.step = True
 
+        self.in_sit_down = False
+        
         self.water = water
         self.water_counter = 0
-
-    def head_y(self) -> int:
-        return self.y
-
-    def head_x(self) -> int:
-        return self.x
 
     def respawn(self):
         self.health = 5
@@ -130,12 +253,13 @@ class Man:
     def jump(self):
         if not self.in_jump:
             self.in_jump = True
+            self.in_sit_down = False
+
+    def sit_down(self):
+        self.in_sit_down = not self.in_sit_down
 
     def do_jump(self):
-        if self.in_jump:
-            self.jump_position += 1
-        else:
-            self.y = self.head_init
+        if not self.in_jump:
             self.jump_position = 0
             return
 
@@ -149,11 +273,11 @@ class Man:
             self.y -= 1
 
     def up(self):
-        self.y = self.head_init
+        self.y = self.y_init
         self.in_jump = False
 
-    def check_oxygen(self, screen):
-        if self.head_y() > len(screen):
+    def check_oxygen(self):
+        if self.y > self.screen.height:
             if self.under >= 30:
                 self.under = 0;
                 self.oxygen -= 1
@@ -164,124 +288,106 @@ class Man:
         else:
             self.oxygen = self.oxygen_init
 
-    def check_water(self, screen):
+    def check_water(self):
         if self.water_counter == 20:
             self.water -= 1
             self.water_counter = 0
         self.water_counter += 1
 
-    def draw(self, screen):
+    def draw(self):
+        self.check_oxygen()
+        self.check_water()
+
+        if self.in_jump:
+            self.jump_position += 1
+            self.frames = self.jump_frames
+        elif self.in_sit_down:
+            self.y = self.y_init + 2
+            self.frames = self.sit_frames
+        else:
+            self.y = self.y_init
+            self.frames = self.run_frames
+
         self.do_jump()
-        self.check_oxygen(screen)
-        self.check_water(screen)
-        y = self.y
         if self.dead():
-            y = len(screen) - 3
-        #draw_dot(screen, x=self.x, y=y+1,    brush='👺')
-        draw_dot(screen, x=self.x, y=y+1,    brush='ج')
-        draw_dot(screen, x=self.x, y=y+2,    brush='|')
-        draw_dot(screen, x=self.x+1, y=y+2,  brush='^')
-        draw_dot(screen, x=self.x-1, y=y+2,  brush='^')
-        if self.in_jump:
-            draw_dot(screen, x=self.x+1, y=y+2,  brush='/')
-            draw_dot(screen, x=self.x-1, y=y+2,  brush='\\')
-        else:
-            draw_dot(screen, x=self.x+2, y=y+2,  brush='\\')
-            draw_dot(screen, x=self.x-2, y=y+2,  brush='/')
-        if self.dead():
-            return
-        draw_dot(screen,     x=self.x, y=y+3,    brush='❂')
-        if self.in_jump:
-            draw_dot(screen, x=self.x, y=y+4,  brush='|')
-            draw_dot(screen, x=self.x+1, y=y+4,  brush='\\')
+            self.y = self.screen.height - 2
+        super().draw()
 
-            draw_dot(screen, x=self.x, y=y+5,  brush='/')
-            draw_dot(screen, x=self.x+1, y=y+5,  brush='/')
-        else:
-            if self.step == 0:
-                draw_dot(screen, x=self.x-1, y=y+4,  brush='/')
-                draw_dot(screen, x=self.x-2, y=y+5,  brush='/')
+class Screen():
+    def __init__(self, height, width, moment):
+        self.moment_init = moment
+        self.moment = moment
 
-                draw_dot(screen,     x=self.x+1, y=y+4,  brush='\\')
-                draw_dot(screen, x=self.x+2, y=y+5,  brush='/')
-                self.step = 1
-            elif self.step == 1:
-                self.step = 2;
-                draw_dot(screen, x=self.x, y=y+4,  brush='|')
-                draw_dot(screen, x=self.x, y=y+4,  brush='|')
-                draw_dot(screen, x=self.x, y=y+5,  brush='/')
-                draw_dot(screen, x=self.x, y=y+5,  brush='/')
+        self.height = height
+        self.width = width
+        self.pixels = [[" " for _ in range(width)] for _ in range(height)]
+
+    def clean(self):
+        for line in self.pixels:
+            for idx in range(self.width):
+                line[idx] = " "
+
+    def reset(self):
+        self.moment = self.moment_init
+
+    def slow_down(self):
+        self.moment += 0.02
+
+    def speed_up(self):
+        self.moment = max(self.moment - 0.02, 0.02)
+
+    def print(self):
+        ss = io.StringIO("")
+        num1 = []
+        num2 = []
+        for idx in range(self.width):
+            tens = idx // 10
+            if tens > 0:
+                num1.append(tens)
             else:
-                draw_dot(screen, x=self.x, y=y+4,  brush='|')
-                draw_dot(screen, x=self.x+1, y=y+5,  brush='/')
+                num1.append(' ')
+            num2.append(idx % 10)
+        ss.write(f"{escape}{cs}30m   ")
+        ss.write("".join(str(i) for i in num1))
+        ss.write(f"{unset}\n")
+        ss.write(f"{escape}{cs}30m   ")
+        ss.write("".join(str(i) for i in num2))
+        ss.write(f"{unset}\n")
 
-                draw_dot(screen, x=self.x, y=y+4,  brush='|')
-                draw_dot(screen, x=self.x-1, y=y+5,  brush='/')
-                self.step = 0
+        ss.write(f"{escape}{cs}34m")
+        ss.write("-" * 84)
+        ss.write(f"{unset}")
+        ss.write("\n")
+        for (idx, line) in enumerate(self.pixels):
+            ss.write(f'{escape}{cs}30m{idx: >2}|{unset}')
+            for chr in line:
+                ss.write(chr)
+            ss.write(f"{escape}{cs}30m|{unset}\n")
+        ss.write(f"{escape}{cs}32m")
+        ss.write("-" * 84)
+        ss.write(f"{unset}")
+        ss.write("\n")
+        ss.seek(0)
+        print(ss.read())
 
 
-def make_screen():
-    screen = [[" " for _ in range(80)] for _ in range(30)]
-    return screen
-
-def print_screen(screen):
-    ss = io.StringIO("")
-    first_line = screen[0]
-    num1 = []
-    num2 = []
-    for (idx, _) in enumerate(first_line):
-        tens = idx // 10
-        if tens > 0:
-            num1.append(tens)
+    def draw_dot(self, x, y, brush, color=0):
+        if y < 0 or y >= self.height:
+            return
+        if x < 0 or x >= self.width:
+            return
+        if color > 0:
+            self.pixels[y][x] = f"{escape}{cs}{color}m{brush}{unset}"
         else:
-            num1.append(' ')
-        num2.append(idx % 10)
-    ss.write(f"{escape}{cs}30m   ")
-    ss.write("".join(str(i) for i in num1))
-    ss.write(f"{unset}\n")
-    ss.write(f"{escape}{cs}30m   ")
-    ss.write("".join(str(i) for i in num2))
-    ss.write(f"{unset}\n")
+            self.pixels[y][x] = brush
 
-    ss.write(f"{escape}{cs}34m")
-    ss.write("-" * 84)
-    ss.write(f"{unset}")
-    ss.write("\n")
-    for (idx, line) in enumerate(screen):
-        ss.write(f'{escape}{cs}30m{idx: >2}|{unset}')
-        for chr in line:
-            ss.write(chr)
-        ss.write(f"{escape}{cs}30m|{unset}\n")
-    ss.write(f"{escape}{cs}32m")
-    ss.write("-" * 84)
-    ss.write(f"{unset}")
-    ss.write("\n")
-    ss.seek(0)
-    print(ss.read())
+    def vertical_line(self, x, y, lenght, brush, color):
+      for y in range(y, y+lenght):
+          self.draw_dot(x, y, brush, color)
 
-
-def draw_rock(screen, x=57, y=28, brush='#'):
-    draw_dot(screen, x,   y,   brush)
-    draw_dot(screen, x+1, y,   brush)
-    draw_dot(screen, x,   y+1, brush)
-    draw_dot(screen, x+1, y+1, brush)
-    draw_dot(screen, x-1, y+1, brush)
-    draw_dot(screen, x+2, y+1, brush)
-
-def draw_dot(screen, x, y, brush, color=0):
-    if y < 0 or y >= len(screen):
-        return
-    if x < 0 or x >= len(screen[y]):
-        return
-    if color > 0:
-        screen[y][x] = f"{escape}{cs}{color}m{brush}{unset}"
-    else:
-        screen[y][x] = brush
-
-def drow_vertical_line(screen, x, y, lenght, brush, color):
-  for y in range(y, y+lenght):
-      draw_dot(screen, x, y, brush, color)
-
+    def string(self, text, x, y):
+        for idx, chr in enumerate(text):
+            self.draw_dot(x=x + idx, y=y, brush=chr)
 
 def get_pressed_key(moment=0.1):
     """
@@ -323,7 +429,6 @@ def get_pressed_key(moment=0.1):
     return None
 
 if __name__ == '__main__':
-    rock = 0
     rock_position = 80
 
     rock_hit = False
@@ -334,21 +439,26 @@ if __name__ == '__main__':
     head=head_init
     jump=0
 
-    moment = 0.1
 
-    man = Man(health=5, oxygen=7, x=18, y=24)
-    cloud = Cloud(y=1, x=73)
+    width=80
+    height=30
+    screen = Screen(width=width, height=height, moment=0.1)
+    man = Man(health=5, oxygen=7, x=18, y=25, screen=screen)
+    cloud = Cloud(y=1, x=73, screen=screen)
+    rocks = [Rock(y=28, x=79, screen=screen), Rock(y=28, x=89, screen=screen)]
 
     while True:
-        screen = make_screen()
-        man.draw(screen)
-        cloud.draw(screen)
-        draw_rock(screen, x=rock_position)
-        drow_vertical_line(screen, x=2, y=1, lenght=man.health, brush='❤️', color=31)
+        screen.clean()
+        man.draw()
+        cloud.draw()
+        for rock in rocks:
+            rock.draw()
+        screen.vertical_line(x=2, y=1, lenght=man.health, brush='❤', color=31)
 
-        drow_vertical_line(screen, x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
-        drow_vertical_line(screen, x=6, y=1, lenght=man.water, brush='🌢', color=34)
-        print_screen(screen)
+        screen.vertical_line(x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
+        screen.vertical_line(x=6, y=1, lenght=man.water, brush='🌢', color=34)
+        screen.string(f"ɱ : {screen.moment:.2f}", y=0, x=0)
+        screen.print()
 
         if chr in ['space', 'up', 'page-up']:
             man.jump()
@@ -362,29 +472,20 @@ if __name__ == '__main__':
             pass
         elif chr == 'r':
             man.up()
-        elif chr == 's':
-            moment += 0.02
+        elif chr == 'c':
+            man.sit_down()
         elif chr == 'z':
             man.respawn()
+            screen.reset()
 
-        elif chr == 'S':
-            moment = max(moment - 0.02, 0.05)
+        elif chr == '+':
+            screen.slow_down()
+        elif chr == '-':
+            screen.speed_up()
 
 
-        if rock_position == man.head_x() + 10:
-            rock_hit = True
-
-        rock_distance = rock_position - man.head_x()
-        if (-2 < rock_distance < 2) and len(screen) > man.head_y() > 22:
-            # print("rock_hit")
-            if rock_hit:
-                man.health -= 1
-                rock_hit = False
-
-        rock_position -= 1
-        if rock_position < 0:
-            rock += 1
-            rock_position = len(screen[0])
-
-        chr = get_pressed_key(moment)
+        cloud.hit(man)
+        for rock in rocks:
+            rock.hit(man)
+        chr = get_pressed_key(screen.moment)
 
