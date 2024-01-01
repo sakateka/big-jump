@@ -1,13 +1,14 @@
 import tty
 import termios
-import select
-from textwrap import dedent
-from random import random
-
 import math
 import time
 import io
 import sys
+import threading
+
+from textwrap import dedent
+from random import random
+
 
 escape = "\x1b"
 unset = escape + "[0m" # ]
@@ -21,7 +22,7 @@ class Object:
 
         self.height = len(frames[0])
         self.width = len(frames[0][0])
-        
+
         self.moving = moving
         self.frames = frames
         self.x_init = x
@@ -77,7 +78,7 @@ class Object:
 
         color = self.color(x=fx, y=fy)
         return frame[fy][fx], color
-    
+
     def hit(self, _):
         pass
 
@@ -107,7 +108,7 @@ class Lightning(Object):
             :🭦 🮆 🮆 🭛       :
             : 🭦 🮆 🭛        :
             :  🭦 🭛         :
-        """) 
+        """)
 
         frames = Object.split_pattern(pattern, ':')
         super().__init__(screen=screen, x=x, y=y, frames=frames)
@@ -185,7 +186,7 @@ class Cloud(Object):
         return 0
 
     def draw(self):
-        
+
         super().draw()
         self.lightning.x = self.x - 1
         self.lightning.draw()
@@ -212,10 +213,14 @@ class Rock(Object):
             self.rock_hit = True
 
         rock_distance = self.x - other.x
-        if (-1 < rock_distance < 1) and self.screen.height > other.y > 23:
-            if self.rock_hit:
+        if self.rock_hit:
+            if (-1 < rock_distance < 1) and self.screen.height > other.y > 23:
                 other.health -= 1
                 self.rock_hit = False
+
+            if rock_distance == -2:
+                self.rock_hit = False
+                other.score += 1
 
 class Man(Object):
     def __init__(self, screen, health=5, oxygen=5, water=10, x=18, y=24):
@@ -259,6 +264,7 @@ class Man(Object):
         self.oxygen_init = oxygen
         self.oxygen = oxygen
         self.under = 0
+        self.score = 0
 
         self.jump_duration = 10
         self.jump_height = 5
@@ -268,7 +274,7 @@ class Man(Object):
         self.step = True
 
         self.in_sit_down = False
-        
+
         self.water = water
         self.water_counter = 0
 
@@ -276,6 +282,7 @@ class Man(Object):
         self.health = 5
         self.oxygen = 7
         self.water = 10
+        self.score = 0
 
     def dead(self) -> bool:
         return self.health <= 0
@@ -372,7 +379,10 @@ class Screen():
         self.moment += 0.02
 
     def speed_up(self):
-        self.moment = max(self.moment - 0.02, 0.02)
+        self.moment = max(self.moment - 0.02, 0.008)
+
+    def sleep(self):
+        time.sleep(self.moment)
 
     def print(self):
         ss = io.StringIO("")
@@ -427,16 +437,25 @@ class Screen():
         for idx, chr in enumerate(text):
             self.draw_dot(x=x + idx, y=y, brush=chr)
 
-get_pressed_key_init = False
-def get_pressed_key(moment=0.1):
-    """
-    Detects which arrow key is pressed on the keyboard and returns the corresponding direction.
-    """
-    fd = sys.stdin.fileno()
-    if not get_pressed_key_init:
-        tty.setcbreak(sys.stdin.fileno())  # Set the terminal to cbreak mode
-    ch = None
-    if sys.stdin in select.select([sys.stdin], [], [], moment)[0]:  # Adjust delay value here
+class InputProcessor():
+    def __init__(self):
+        self.char = None
+        tty.setcbreak(sys.stdin.fileno())
+
+        x = threading.Thread(target=self.process_input, daemon=True)
+        x.start()
+
+    def current_char(self):
+        ch = self.char
+        self.char = None
+        return ch
+
+    def process_input(self):
+        while True:
+            ch = self.getchr()
+            self.char = ch
+
+    def getchr(self):
         ch = sys.stdin.read(1)
         if ch == '\x1b':  # Escape key
             ch = sys.stdin.read(2)
@@ -462,9 +481,10 @@ def get_pressed_key(moment=0.1):
             return "space"
         else:
             return ch
-    return None
 
 if __name__ == '__main__':
+    control = InputProcessor()
+
     width=80
     height=30
     screen = Screen(width=width, height=height, moment=0.1)
@@ -474,19 +494,9 @@ if __name__ == '__main__':
 
     chr = None
     while True:
-        screen.clean()
-        man.draw()
-        cloud.draw()
-        for rock in rocks:
-            rock.draw()
-        screen.vertical_line(x=2, y=1, lenght=man.health, brush='❤', color=31)
+        screen.sleep()
 
-        screen.vertical_line(x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
-        screen.vertical_line(x=6, y=1, lenght=man.water, brush='🌢', color=34)
-        # cloud.hit(man, draw=True)
-        screen.string(f"ɱ : {screen.moment:.2f}", y=0, x=0)
-        screen.print()
-
+        chr = control.current_char()
         if chr in ['space', 'up', 'page-up']:
             man.jump()
         elif chr == 'right':
@@ -511,8 +521,20 @@ if __name__ == '__main__':
             screen.speed_up()
 
 
+        screen.clean()
+        man.draw()
+        cloud.draw()
+        for rock in rocks:
+            rock.draw()
+        screen.vertical_line(x=2, y=1, lenght=man.health, brush='❤', color=31)
+
+        screen.vertical_line(x=4, y=1, lenght=man.oxygen, brush='Ꝍ', color=34)
+        screen.vertical_line(x=6, y=1, lenght=man.water, brush='🌢', color=34)
+        # cloud.hit(man, draw=True)
+        screen.string(f"ɱ : {screen.moment:.2f} (speed +/-) score: {man.score}", y=0, x=0)
+        screen.print()
+
+
         cloud.hit(man)
         for rock in rocks:
             rock.hit(man)
-        chr = get_pressed_key(screen.moment)
-
